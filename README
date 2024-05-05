@@ -1,0 +1,2 @@
+protostat implements the functionality of `netstat -s` and automatically
+stores previous output and allows comparing output.
