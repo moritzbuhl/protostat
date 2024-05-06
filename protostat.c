@@ -44,6 +44,10 @@
 char file[PATH_MAX];
 int store, jFlag, lFlag, qFlag, wFlag;
 
+struct stats {
+	struct tcpstat tcp;
+};
+
 void
 printstat(void *buf, struct stat_field_descr descr[], size_t nfields)
 {
@@ -90,12 +94,12 @@ dumpstat(void *buf, size_t len)
 }
 
 void
-loadstat(void *buf, size_t len)
+loadstat(int fd, void *buf, size_t len)
 {
 	ssize_t r, l = 0;
 
 	while (len != 0) {
-		if ((r = read(store, buf + l, len)) == -1)
+		if ((r = read(fd, buf + l, len)) == -1)
 			err(1, NULL);
 		len -= r;
 		l += r;
@@ -212,6 +216,9 @@ main(int argc, char *argv[])
 	while ((ch = getopt(argc, argv, "D:I:P:djlqw")) != -1) {
 		switch (ch) {
 		case 'd':
+			id1 = max;
+			IFlag = 0;
+			qFlag = 0;
 			break;
 		case 'j':
 			jFlag = 1;
@@ -222,9 +229,13 @@ main(int argc, char *argv[])
 			lFlag = 1;
 			break;
 		case 'w':
+			id1 = 0;
+			IFlag = 0;
 			wFlag = 1;
 			break;
 		case 'q':
+			id1 = 0;
+			IFlag = 0;
 			qFlag = 1;
 			break;
 		case 'D':
@@ -241,11 +252,16 @@ main(int argc, char *argv[])
 					    errstr, optarg);
 			} else
 				id1 = max;
+			IFlag = 0;
+			qFlag = 0;
 			break;
 		case 'I':
 			IFlag = strtonum(optarg, 1, max, &errstr);
 			if (errstr != NULL)
 				errx(1, "-I id is %s: %s", errstr, optarg);
+			id1 = 0;
+			wFlag = 0;
+			qFlag = 0;
 			break;
 		case 'P':
 			if (protocol == PROTO_ALL)
@@ -276,16 +292,25 @@ main(int argc, char *argv[])
 	if (unveil(file, "rwc") == -1)
 		err(1, NULL);
 
-	if (IFlag) {
-		wFlag = 0;
-		qFlag = 0;
-	} else if (wFlag) {
+	if (wFlag) {
 		if ((store = mkstemp(file)) == -1)
 			err(1, "mkstemp");
 	}
 
-	if (lFlag || IFlag)
+	if (lFlag || IFlag) {
 		iter(lFlag, IFlag, &store, 0, NULL);
+	} else if (id1) {
+		int fd1, fd2;
+		struct stats st1, st2;
+
+		wFlag = 0;
+		iter(lFlag, id1, &fd1, id2, &fd2);
+		loadstat(fd1, &st1, sizeof(st1));
+		loadstat(fd2, &st2, sizeof(st2));
+
+		/* diff structs */
+		/* printstats */
+	}
 
 	if (!lFlag)
 		stats(protocol);
