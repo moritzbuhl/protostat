@@ -20,13 +20,33 @@
 #include <sys/sysctl.h>
 
 #include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet6/ip6_var.h>
+#include <netinet/ip_var.h>
 #include <netinet/ip_ah.h>
 #include <netinet/ip_carp.h>
 #include <netinet/ip_divert.h>
+#include <netinet/ip_esp.h>
+#include <netinet/ip_ether.h>
+#include <netinet/ip_icmp.h>
+#include <netinet/ip_ipcomp.h>
+#include <netinet/ip_ipip.h>
+#include <netinet/ip_ipsp.h>
+#include <netinet/icmp6.h>
+#include <netinet/icmp_var.h>
+#include <netinet/igmp_var.h>
 #include <netinet/tcp.h>
 #include <netinet/tcp_timer.h>
 #include <netinet/tcp_var.h>
+#include <netinet/udp.h>
+#include <netinet/udp_var.h>
 #include <netinet6/ip6_divert.h>
+#include <netinet6/raw_ip6.h>
+
+#include <net/if.h>
+#include <net/pfvar.h>
+#include <net/if_pflow.h>
+#include <net/if_pfsync.h>
 
 #include <dirent.h>
 #include <err.h>
@@ -72,13 +92,27 @@
 struct stats {
 	struct ahstat ah;
 	struct carpstats carp;
-	struct div6stat divert6;
 	struct divstat divert;
+	struct div6stat divert6;
+	struct espstat esp;
+	struct etheripstat etherip;
+	struct icmpstat icmp;
+	struct icmp6stat icmp6;
+	struct igmpstat igmp;
+	struct ipstat ip;
+	struct ip6stat ip6;
+	struct ipcompstat ipcomp;
+	struct ipipstat ipip;
+	struct ipsecstat ipsec;
+	struct pflowstats pflow;
+	struct pfsyncstats pfsync;
+	struct rip6stat rip6;
 	struct tcpstat tcp;
+	struct udpstat udp;
 };
 
 char file[PATH_MAX];
-int store, jFlag, lFlag, qFlag, wFlag;
+int store, jFlag, lFlag, qFlag, wFlag, zFlag;
 struct stats print;
 
 void
@@ -87,25 +121,37 @@ printstat(void *buf, struct stat_field_descr descr[], size_t nfields)
 	size_t i;
 	struct stat_field_descr *n;
 
-	if (qFlag)
-		return;
-
 	for (i = 0; i < nfields; i++) {
 		n = &descr[i];
-		printf("%s: ", descr[i].name);
 		switch(n->siz) {
-		case 1:
-			printf("%hhu\n", ((uint8_t *)(buf + n->off))[0]);
+		case 1: {
+			uint8_t v = ((uint8_t *)(buf + n->off))[0];
+			if (zFlag && !v)
+				break;
+			printf("%s: %hhu\n", descr[i].name, v);
 			break;
-		case 2:
-			printf("%hu\n", ((uint16_t *)(buf + n->off))[0]);
+		}
+		case 2: {
+			uint16_t v = ((uint16_t *)(buf + n->off))[0];
+			if (zFlag && !v)
+				break;
+			printf("%s: %hu\n", descr[i].name, v);
 			break;
-		case 4:
-			printf("%u\n", ((uint32_t *)(buf + n->off))[0]);
+		}
+		case 4: {
+			uint32_t v = ((uint32_t *)(buf + n->off))[0];
+			if (zFlag && !v)
+				break;
+			printf("%s: %u\n", descr[i].name, v);
 			break;
-		case 8:
-			printf("%llu\n", ((uint64_t *)(buf + n->off))[0]);
+		}
+		case 8: {
+			uint64_t v = ((uint64_t *)(buf + n->off))[0];
+			if (zFlag && !v)
+				break;
+			printf("%s: %llu\n", descr[i].name, v);
 			break;
+		}
 		default:
 			errx(1, "unsupported type size");
 		}
@@ -124,8 +170,21 @@ printstats(struct stats *st, uint32_t protocol)
 	printproto(PROTO_CARP, st->carp, carp_descr);
 	printproto(PROTO_DIVERT6, st->divert6, divert6_descr);
 	printproto(PROTO_DIVERT, st->divert, divert_descr);
-
+	printproto(PROTO_ESP, st->esp, esp_descr);
+	printproto(PROTO_ETHERIP, st->etherip, etherip_descr);
+	printproto(PROTO_ICMP, st->icmp, icmp_descr);
+	printproto(PROTO_ICMP6, st->icmp6, icmp6_descr);
+	printproto(PROTO_IGMP, st->igmp, igmp_descr);
+	printproto(PROTO_IP, st->ip, ip_descr);
+	printproto(PROTO_IP6, st->ip6, ip6_descr);
+	printproto(PROTO_IPCOMP, st->ipcomp, ipcomp_descr);
+	printproto(PROTO_IPENCAP, st->ipip, ipip_descr);
+	printproto(PROTO_IPSEC, st->ipsec, ipsec_descr);
+	printproto(PROTO_PFLOW, st->pflow, pflow_descr);
+	printproto(PROTO_PFSYNC, st->pfsync, pfsync_descr);
+	printproto(PROTO_RIP6, st->rip6, rip6_descr);
 	printproto(PROTO_TCP, st->tcp, tcp_descr);
+	printproto(PROTO_UDP, st->udp, udp_descr);
 }
 
 void
@@ -181,25 +240,44 @@ diffstat(void *in1, void *in2, void *out, struct stat_field_descr descr[],
 	}
 }
 
+#define diff(field, descr)	diffstat(&st1->field, &st2->field, 	\
+				&out->field, descr, sizeof(descr) /	\
+				sizeof(descr[0]))
 void
 diffstats(struct stats *st1, struct stats *st2, struct stats *out)
 {
-	diffstat(&st1->tcp, &st2->tcp, &out->tcp, tcp_descr, sizeof(tcp_descr) /
-		    sizeof(tcp_descr[0]));
+	diff(ah, ah_descr);
+	diff(carp, carp_descr);
+	diff(divert, divert_descr);
+	diff(divert6, divert6_descr);
+	diff(esp, esp_descr);
+	diff(etherip, etherip_descr);
+	diff(icmp, icmp_descr);
+	diff(icmp6, icmp6_descr);
+	diff(igmp, igmp_descr);
+	diff(ip, ip_descr);
+	diff(ip6, ip6_descr);
+	diff(ipcomp, ipcomp_descr);
+	diff(ipip, ipip_descr);
+	diff(ipsec, ipsec_descr);
+	diff(pflow, pflow_descr);
+	diff(pfsync, pfsync_descr);
+	diff(rip6, rip6_descr);
+	diff(tcp, tcp_descr);
+	diff(udp, udp_descr);
 }
 
 void
-dumpstat(void *buf, size_t len)
+dumpstat(int fd, void *buf, size_t len)
 {
-	ssize_t r;
+	ssize_t r, l = 0;
 
-	if (!wFlag)
-		return;
-
-	if ((r = write(store, buf, len)) == -1)
-		err(1, NULL);
-	else if (r != len)
-		errx(1, "short write");
+	while (len != 0) {
+		if ((r = write(fd, buf + l, len)) == -1)
+			err(1, NULL);
+		len -= r;
+		l += r;
+	}
 }
 
 void
@@ -224,7 +302,7 @@ loadstat(int fd, void *buf, size_t len)
 		if (sysctl(mib, sizeof(mib) / sizeof(mib[0]), &field,	\
 		    &len, NULL, 0) == -1)				\
 			err(1, NULL);					\
-	} while(0)
+	} while (0)
 
 void
 getstats(struct stats *st)
@@ -235,11 +313,44 @@ getstats(struct stats *st)
 	    struct carpstats, st->carp);
 	getstat(CTL_NET, PF_INET6, IPPROTO_DIVERT, DIVERT6CTL_STATS,
 	    struct div6stat, st->divert6);
-	getstat(CTL_NET, PF_INET, IPPROTO_DIVERT, DIVERT6CTL_STATS,
+	getstat(CTL_NET, PF_INET, IPPROTO_DIVERT, DIVERTCTL_STATS,
 	    struct divstat, st->divert);
-
+	getstat(CTL_NET, PF_INET, IPPROTO_ESP, ESPCTL_STATS,
+	    struct espstat, st->esp);
+	getstat(CTL_NET, PF_INET, IPPROTO_ETHERIP, ETHERIPCTL_STATS,
+	    struct etheripstat, st->etherip);
+	getstat(CTL_NET, PF_INET6, IPPROTO_ICMPV6, ICMPV6CTL_STATS,
+	    struct icmp6stat, st->icmp6);
+	getstat(CTL_NET, PF_INET, IPPROTO_ICMP, ICMPCTL_STATS,
+	    struct icmpstat, st->icmp);
+	getstat(CTL_NET, PF_INET, IPPROTO_IGMP, IGMPCTL_STATS,
+	    struct igmpstat, st->igmp);
+	getstat(CTL_NET, PF_INET, IPPROTO_IP, IPCTL_STATS,
+	    struct ipstat, st->ip);
+	getstat(CTL_NET, PF_INET6, IPPROTO_IPV6, IPV6CTL_STATS,
+	    struct ip6stat, st->ip6);
+	getstat(CTL_NET, PF_INET, IPPROTO_IPCOMP, IPCOMPCTL_STATS,
+	    struct ipcompstat, st->ipcomp);
+	getstat(CTL_NET, PF_INET, IPPROTO_IPIP, IPIPCTL_STATS,
+	    struct ipipstat, st->ipip);
+	getstat(CTL_NET, PF_INET, IPPROTO_IP, IPCTL_IPSEC_STATS,
+	    struct ipsecstat, st->ipsec);
+	do {
+		int mib[] = { CTL_NET, PF_PFLOW, NET_PFLOW_STATS };
+		size_t len = sizeof(struct pflowstats);
+		memset(&st->pflow, 0, sizeof(st->pflow));
+		if (sysctl(mib, sizeof(mib) / sizeof(mib[0]), &st->pflow,
+		    &len, NULL, 0) == -1)
+			err(1, NULL);
+	} while (0);
+	getstat(CTL_NET, PF_INET, IPPROTO_PFSYNC, PFSYNCCTL_STATS,
+	    struct pfsyncstats, st->pfsync);
+	getstat(CTL_NET, PF_INET6, IPPROTO_RAW, RIPV6CTL_STATS,
+	    struct rip6stat, st->rip6);
 	getstat(CTL_NET, PF_INET, IPPROTO_TCP, TCPCTL_STATS,
 	    struct tcpstat, st->tcp);
+	getstat(CTL_NET, PF_INET, IPPROTO_UDP, UDPCTL_STATS,
+	    struct udpstat, st->udp);
 }
 
 long long
@@ -338,13 +449,14 @@ str2proto(char *optarg)
 void
 usage(void)
 {
-	fprintf(stderr, "usage: protostat [-djlqw] [-D id[,id]] [-I id] "
+	fprintf(stderr, "usage: protostat [-djlqwz] [-D id[,id]] [-I id] "
 	    "[-P proto]\n");
 	fprintf(stderr, "    -d\t\tprint delta since last invocation\n");
 	fprintf(stderr, "    -j\t\twrite output as JSON\n");
 	fprintf(stderr, "    -l\t\tlist previously stored data and ids\n");
-	fprintf(stderr, "    -q\t\tdo'nt print current state\n");
+	fprintf(stderr, "    -q\t\tskip printing state\n");
 	fprintf(stderr, "    -w\t\tstore current state\n");
+	fprintf(stderr, "    -w\t\tskip zero values\n");
 	fprintf(stderr, "    -D id,id\tprint delta since id or between ids\n");
 	fprintf(stderr, "    -I id\tprint state of id\n");
 	fprintf(stderr, "    -P proto\tonly process the given protocol\n");
@@ -375,7 +487,7 @@ main(int argc, char *argv[])
 	if (r < 0 || (size_t)r >= sizeof(file))
 		err(1, NULL);
 
-	while ((ch = getopt(argc, argv, "D:I:P:djlqw")) != -1) {
+	while ((ch = getopt(argc, argv, "D:I:P:djlqwz")) != -1) {
 		switch (ch) {
 		case 'd':
 			id1 = max;
@@ -399,6 +511,9 @@ main(int argc, char *argv[])
 			id1 = 0;
 			IFlag = 0;
 			qFlag = 1;
+			break;
+		case 'z':
+			zFlag = 1;
 			break;
 		case 'D':
 			if (!max)
@@ -479,6 +594,8 @@ main(int argc, char *argv[])
 	if (lFlag)
 		return 0;
 
-	printstats(&print, protocol);
-	dumpstat(&print.tcp, sizeof(print.tcp));
+	if (!qFlag)
+		printstats(&print, protocol);
+	if (wFlag)
+		dumpstat(store, &print, sizeof(print));
 }
