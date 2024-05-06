@@ -112,7 +112,7 @@ struct stats {
 };
 
 char file[PATH_MAX];
-int jFlag, zFlag;
+int zFlag;
 
 void
 printstat(void *buf, struct stat_field_descr descr[], size_t nfields)
@@ -449,16 +449,15 @@ void
 usage(void)
 {
 	fprintf(stderr, "usage: protostat [-djlqwz] [-D id[,id]] [-I id] "
-	    "[-P proto]\n");
-	fprintf(stderr, "    -d\t\tprint delta since last invocation\n");
-	fprintf(stderr, "    -j\t\twrite output as JSON\n");
-	fprintf(stderr, "    -l\t\tlist previously stored data and ids\n");
+	    "[-P protocol]\n");
+	fprintf(stderr, "    -d\t\tprint delta to last stored state\n");
+	fprintf(stderr, "    -l\t\tlist previously stored entries and ids\n");
 	fprintf(stderr, "    -q\t\tskip printing state\n");
 	fprintf(stderr, "    -w\t\tstore current state\n");
-	fprintf(stderr, "    -w\t\tskip zero values\n");
+	fprintf(stderr, "    -w\t\tskip zero values while printing\n");
 	fprintf(stderr, "    -D id,id\tprint delta since id or between ids\n");
 	fprintf(stderr, "    -I id\tprint state of id\n");
-	fprintf(stderr, "    -P proto\tonly process the given protocol\n");
+	fprintf(stderr, "    -P protocol\tonly print the given protocol\n");
 	exit(1);
 }
 
@@ -489,7 +488,7 @@ main(int argc, char *argv[])
 	if (r < 0 || (size_t)r >= sizeof(file))
 		err(1, NULL);
 
-	while ((ch = getopt(argc, argv, "D:I:P:djlqwz")) != -1) {
+	while ((ch = getopt(argc, argv, "D:I:P:dlqwz")) != -1) {
 		switch (ch) {
 		case 'd':
 			dFlag = 1;
@@ -497,10 +496,6 @@ main(int argc, char *argv[])
 			DFlag = 0;
 			IFlag = 0;
 			qFlag = 0;
-			break;
-		case 'j':
-			jFlag = 1;
-			errx(1, "not yet implemented");
 			break;
 		case 'l':
 			lFlag = 1;

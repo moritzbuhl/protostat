@@ -1,2 +1,12 @@
 protostat implements the functionality of `netstat -s` and automatically
 stores previous output and allows comparing output.
+
+protostat [-dlqwz] [-D id[,id]] [-I id] [-P protocol]
+    -d		print delta to last stored state
+    -l		list previously stored entries and ids
+    -q		skip printing state
+    -w		store new state
+    -w		skip zero values while printing
+    -D id[,id]	print delta since id or between two ids
+    -I id	print state of id
+    -P protocol	only print the given protocol
