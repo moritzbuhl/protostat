@@ -41,12 +41,13 @@
 #define PROTO_TCP	0x01
 #define PROTO_ALL	(PROTO_TCP)
 
-char file[PATH_MAX];
-int store, jFlag, lFlag, qFlag, wFlag;
-
 struct stats {
 	struct tcpstat tcp;
 };
+
+char file[PATH_MAX];
+int store, jFlag, lFlag, qFlag, wFlag;
+struct stats print;
 
 void
 printstat(void *buf, struct stat_field_descr descr[], size_t nfields)
@@ -80,6 +81,16 @@ printstat(void *buf, struct stat_field_descr descr[], size_t nfields)
 }
 
 void
+diffstat(uint8_t *buf1, uint8_t *buf2, size_t len)
+{
+	size_t i;
+	uint8_t *p = (uint8_t *)&print;
+
+	for (i = 0; i < len; i++)
+		p[i] = buf2[i] - buf1[i];
+}
+
+void
 dumpstat(void *buf, size_t len)
 {
 	ssize_t r;
@@ -107,21 +118,15 @@ loadstat(int fd, void *buf, size_t len)
 }
 
 void
-stats(int protocol)
+getstats(struct stats *st)
 {
-	struct tcpstat tcp;
 	int mib[] = { CTL_NET, PF_INET, IPPROTO_TCP, TCPCTL_STATS };
 	size_t len = sizeof(struct tcpstat);
 
-	memset(&tcp, 0, sizeof(tcp));
-	if (sysctl(mib, sizeof(mib) / sizeof(mib[0]), &tcp, &len,
+	memset(&st->tcp, 0, sizeof(st->tcp));
+	if (sysctl(mib, sizeof(mib) / sizeof(mib[0]), &st->tcp, &len,
 	    NULL, 0) == -1)
 		err(1, "sysctl");
-
-	if (protocol & PROTO_TCP)
-		printstat(&tcp, tcp_descr, sizeof(tcp_descr) /
-		    sizeof(tcp_descr[0]));
-	dumpstat(&tcp, sizeof(tcp));
 }
 
 long long
@@ -242,6 +247,7 @@ main(int argc, char *argv[])
 			if (!max)
 				errx(1, "no stored data available");
 			else if ((c = strstr(optarg, ",")) != NULL) {
+				*c = '\0';
 				id1 = strtonum(optarg, 1, max, &errstr);
 				if (errstr != NULL)
 					errx(1, "-D id is %s: %s", errstr,
@@ -303,15 +309,24 @@ main(int argc, char *argv[])
 		int fd1, fd2;
 		struct stats st1, st2;
 
-		wFlag = 0;
 		iter(lFlag, id1, &fd1, id2, &fd2);
 		loadstat(fd1, &st1, sizeof(st1));
-		loadstat(fd2, &st2, sizeof(st2));
+		if (id2)
+			loadstat(fd2, &st2, sizeof(st2));
+		else
+			getstats(&st2);
 
-		/* diff structs */
-		/* printstats */
+		diffstat((uint8_t *)&st1, (uint8_t *)&st2, sizeof(st1));
 	}
 
-	if (!lFlag)
-		stats(protocol);
+	if (!IFlag && !id1)
+		getstats(&print);
+
+	if (lFlag)
+		return 0;
+
+	if (protocol & PROTO_TCP)
+		printstat(&print.tcp, tcp_descr, sizeof(tcp_descr) /
+		    sizeof(tcp_descr[0]));
+	dumpstat(&print.tcp, sizeof(print.tcp));
 }
