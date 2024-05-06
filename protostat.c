@@ -24,6 +24,7 @@
 #include <netinet/tcp_timer.h>
 #include <netinet/tcp_var.h>
 
+#include <dirent.h>
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -40,7 +41,7 @@
 #define PROTO_TCP	0x01
 #define PROTO_ALL	(PROTO_TCP)
 
-char dir[] = _PATH"/XXXXXXXXXX";
+int store, wFlag, jFlag, lFlag;
 
 void
 printstat(void *buf, struct stat_field_descr descr[], size_t nfields)
@@ -71,27 +72,31 @@ printstat(void *buf, struct stat_field_descr descr[], size_t nfields)
 }
 
 void
-dumpstat(void *buf, size_t len, char *prot)
+dumpstat(void *buf, size_t len)
 {
-	char *file;
 	ssize_t r;
-	int fd;
 
-	if (asprintf(&file, "%s/%s", dir, prot) == -1 || file == NULL)
-		err(1, NULL);
-
-	if ((fd = open(file, O_WRONLY | O_CREAT | O_EXCL, 0644)) == -1)
-		err(1, "open");
-	if ((r = write(fd, buf, len)) == -1)
+	if ((r = write(store, buf, len)) == -1)
 		err(1, NULL);
 	else if (r != len)
 		errx(1, "short write");
-
-	free(file);
 }
 
 void
-tcp_stats(void)
+loadstat(void *buf, size_t len)
+{
+	ssize_t r, l = 0;
+
+	while (len != 0) {
+		if ((r = read(store, buf + l, len)) == -1)
+			err(1, NULL);
+		len -= r;
+		l += r;
+	}
+}
+
+void
+stats(int protocol)
 {
 	struct tcpstat tcp;
 	int mib[] = { CTL_NET, PF_INET, IPPROTO_TCP, TCPCTL_STATS };
@@ -102,18 +107,52 @@ tcp_stats(void)
 	    NULL, 0) == -1)
 		err(1, "sysctl");
 
-	printstat(&tcp, tcp_descr, sizeof(tcp_descr) / sizeof(tcp_descr[0]));
-	dumpstat(&tcp, sizeof(tcp), "tcp");
+	if (protocol & PROTO_TCP)
+		printstat(&tcp, tcp_descr, sizeof(tcp_descr) / sizeof(tcp_descr[0]));
+	dumpstat(&tcp, sizeof(tcp));
+}
+
+long long
+list(void)
+{
+	struct tm tm;
+	char *usec;
+	DIR *dirp;
+	struct dirent *dp;
+	long long i = 0;
+
+	printf("Id\tTimestamp\n");
+	if ((dirp = opendir(_PATH)) != NULL) {
+		while ((dp = readdir(dirp)) != NULL) {
+			if (dp->d_type != DT_REG)
+				continue;
+			i++;
+			if (lFlag) {
+				if ((usec = strstr(dp->d_name, ".")) == NULL)
+					errx(1, "unsupported file name: '%s'",
+					    dp->d_name);
+				strptime(dp->d_name, "%s", &tm);
+				printf("%lld\t%d-%02d-%02d %02d:%02d:%02d%.7s\n", i,
+				    tm.tm_year + 1900, tm.tm_mon, tm.tm_mday,
+				    tm.tm_hour, tm.tm_min, tm.tm_sec, usec);
+			}
+		}
+
+		closedir(dirp);
+	}
+
+	return i;
 }
 
 void
 usage(void)
 {
-	fprintf(stderr, "usage: protostat [-djl] [-D id[,id]] [-P protocol]\n");
+	fprintf(stderr, "usage: protostat [-djlw] [-D id[,id]] [-P protocol]\n");
 	fprintf(stderr, "    -d\t\tprint delta since last invocation\n");
 	fprintf(stderr, "    -j\t\twrite output as JSON\n");
 	fprintf(stderr, "    -l\t\tlist previously stored data and ids\n");
-	fprintf(stderr, "    -D id\t\tprint delta since id or between ids\n");
+	fprintf(stderr, "    -w\t\tstore current state\n");
+	fprintf(stderr, "    -D ids\t\tprint delta since id or between ids\n");
 	fprintf(stderr, "    -P protocol\tonly process the given protocol\n");
 	exit(1);
 }
@@ -121,24 +160,57 @@ usage(void)
 int
 main(int argc, char *argv[])
 {
-	int ch, json = 0, list = 0, fd;
-	uint8_t p, protocol = PROTO_ALL;
+	int ch, r;
+	long long id1 = 0, id2 = 0, max = 0;
+	uint32_t protocol = PROTO_ALL;
+	char *c;
+	const char *errstr;
 	struct stat st;
+	struct timeval tv;
+	char file[PATH_MAX];
 
 	if (unveil("/tmp/protostat", "rwc") == -1)
 		err(1, NULL);
 
-	while ((ch = getopt(argc, argv, "D:P:djl")) != -1) {
+	if (gettimeofday(&tv, NULL) == -1)
+		err(1, NULL);
+
+	max = list();
+
+	r = snprintf(file, sizeof(file), _PATH"/%llu.%06ld-XXXXXXXXXX", // XXX
+	    tv.tv_sec, tv.tv_usec);
+	if (r < 0 || (size_t)r >= sizeof(file))
+		err(1, NULL);
+
+	while ((ch = getopt(argc, argv, "D:P:djlw")) != -1) {
 		switch (ch) {
 		case 'd':
 			break;
 		case 'j':
-			json = 1;
+			jFlag = 1;
 			break;
 		case 'l':
-			list = 1;
+			if (!max)
+				errx(1, "no stored data available");
+			lFlag = 1;
+			break;
+		case 'w':
+			wFlag = 1;
 			break;
 		case 'D':
+			if (!max)
+				errx(1, "no stored data available");
+			else if ((c = strstr(optarg, ",")) != NULL) {
+				id1 = strtonum(optarg, 1, max, &errstr);
+				if (errstr != NULL)
+					errx(1, "-D id is %s: %s", errstr,
+					    optarg);
+				id2 = strtonum(++c, id1 + 1, max, &errstr);
+				if (errstr != NULL)
+					errx(1, "-D %lld,id is %s: %s", id1,
+					    errstr, optarg);
+			} else
+				id1 = max;
 			break;
 		case 'P':
 			if (protocol == PROTO_ALL)
@@ -155,7 +227,6 @@ main(int argc, char *argv[])
 
  retry:
 	if (stat(_PATH, &st) == 0) {
-	printf("%d\n", st.st_mode);
 		if (!S_ISDIR(st.st_mode) || (st.st_mode & 0777) != 0755 /* ||
 		    st.st_uid != _UID || st.st_gid != _GID */) /* XXX */
 			errx(1, _PATH " has wrong mode/owner");
@@ -167,13 +238,15 @@ main(int argc, char *argv[])
 	} else if (unveil("/tmp/protostat", "rwc") == -1)
 		err(1, NULL);
 
-	if (mkdtemp(dir) == NULL)
-		err(1, "mkdtemp");
+	if (unveil(file, "rwc") == -1)
+		err(1, NULL);
 
-	if (protocol & PROTO_TCP)
-		tcp_stats();
+	if ((store = mkstemp(file)) == -1)
+		err(1, "mkstemp");
 
-	if (list) {
-		/* list /tmp/protostat/ sorted by creation date */
+	stats(protocol);
+
+	if (lFlag) {
+		list();
 	}
 }
