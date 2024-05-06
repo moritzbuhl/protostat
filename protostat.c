@@ -79,15 +79,72 @@ printstat(void *buf, struct stat_field_descr descr[], size_t nfields)
 		}
 	}
 }
+void
+printstats(struct stats *st, uint32_t protocol)
+{
+	if (protocol & PROTO_TCP)
+		printstat(&st->tcp, tcp_descr, sizeof(tcp_descr) /
+		    sizeof(tcp_descr[0]));
+}
 
 void
-diffstat(uint8_t *buf1, uint8_t *buf2, size_t len)
+diffstat(void *in1, void *in2, void *out, struct stat_field_descr descr[],
+    size_t nfields)
 {
 	size_t i;
-	uint8_t *p = (uint8_t *)&print;
+	struct stat_field_descr *n;
 
-	for (i = 0; i < len; i++)
-		p[i] = buf2[i] - buf1[i];
+	for (i = 0; i < nfields; i++) {
+		n = &descr[i];
+		switch(n->siz) {
+		case 1: {
+			uint8_t i1 = ((uint8_t *)(in1 + n->off))[0];
+			uint8_t i2 = ((uint8_t *)(in2 + n->off))[0];
+			if (i2 < i1)
+				errx(1, "field '%s' shrunk from %hhu to %hhu",
+				    descr[i].name, i1, i2);
+			*((uint8_t *)(out + n->off)) = i2 - i1;
+			break;
+		}
+		case 2: {
+			uint16_t i1 = ((uint16_t *)(in1 + n->off))[0];
+			uint16_t i2 = ((uint16_t *)(in2 + n->off))[0];
+			if (i2 < i1)
+				errx(1, "field '%s' shrunk from %hu to %hu",
+				    descr[i].name, i1, i2);
+			*((uint16_t *)(out + n->off)) = i2 - i1;
+			break;
+		}
+		case 4: {
+			uint32_t i1 = ((uint32_t *)(in1 + n->off))[0];
+			uint32_t i2 = ((uint32_t *)(in2 + n->off))[0];
+			if (i2 < i1)
+				errx(1, "field '%s' shrunk from %u to %u",
+				    descr[i].name, i1, i2);
+			*((uint32_t *)(out + n->off)) = i2 - i1;
+			break;
+			break;
+		}
+		case 8: {
+			uint64_t i1 = ((uint64_t *)(in1 + n->off))[0];
+			uint64_t i2 = ((uint64_t *)(in2 + n->off))[0];
+			if (i2 < i1)
+				errx(1, "field '%s' shrunk from %llu to %llu",
+				    descr[i].name, i1, i2);
+			*((uint64_t *)(out + n->off)) = i2 - i1;
+			break;
+		}
+		default:
+			errx(1, "unsupported type size");
+		}
+	}
+}
+
+void
+diffstats(struct stats *st1, struct stats *st2, struct stats *out)
+{
+	diffstat(&st1->tcp, &st2->tcp, &out->tcp, tcp_descr, sizeof(tcp_descr) /
+		    sizeof(tcp_descr[0]));
 }
 
 void
@@ -316,7 +373,7 @@ main(int argc, char *argv[])
 		else
 			getstats(&st2);
 
-		diffstat((uint8_t *)&st1, (uint8_t *)&st2, sizeof(st1));
+		diffstats(&st1, &st2, &print);
 	}
 
 	if (!IFlag && !id1)
@@ -325,8 +382,6 @@ main(int argc, char *argv[])
 	if (lFlag)
 		return 0;
 
-	if (protocol & PROTO_TCP)
-		printstat(&print.tcp, tcp_descr, sizeof(tcp_descr) /
-		    sizeof(tcp_descr[0]));
+	printstats(&print, protocol);
 	dumpstat(&print.tcp, sizeof(print.tcp));
 }
