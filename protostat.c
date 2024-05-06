@@ -492,6 +492,8 @@ main(int argc, char *argv[])
 		switch (ch) {
 		case 'd':
 			dFlag = 1;
+			if (!max)
+				errx(1, "no stored data available");
 			id1 = max;
 			DFlag = 0;
 			IFlag = 0;
