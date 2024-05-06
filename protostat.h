@@ -15,12 +15,36 @@
  */
 
 #define descr(e, type)	{ #e, sizeof(((type *)0)->e), offsetof(type, e) }
+
+#define ah_descr(name)	descr(name, struct ahstat)
 #define tcp_descr(name)	descr(name, struct tcpstat)
 
 struct stat_field_descr {
 	char	*name;
 	size_t	siz;
 	size_t	off;
+};
+
+struct stat_field_descr ah_descr[] = {
+	ah_descr(ahs_hdrops),
+	ah_descr(ahs_nopf),
+	ah_descr(ahs_notdb),
+	ah_descr(ahs_badkcr),
+	ah_descr(ahs_badauth),
+	ah_descr(ahs_noxform),
+	ah_descr(ahs_qfull),
+	ah_descr(ahs_wrap),
+	ah_descr(ahs_replay),
+	ah_descr(ahs_badauthl),
+	ah_descr(ahs_input),
+	ah_descr(ahs_output),
+	ah_descr(ahs_invalid),
+	ah_descr(ahs_ibytes),
+	ah_descr(ahs_obytes),
+	ah_descr(ahs_toobig),
+	ah_descr(ahs_pdrops),
+	ah_descr(ahs_crypto),
+	ah_descr(ahs_outfail),
 };
 
 struct stat_field_descr tcp_descr[] = {

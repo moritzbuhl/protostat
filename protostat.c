@@ -20,6 +20,7 @@
 #include <sys/sysctl.h>
 
 #include <netinet/in.h>
+#include <netinet/ip_ah.h>
 #include <netinet/tcp.h>
 #include <netinet/tcp_timer.h>
 #include <netinet/tcp_var.h>
@@ -38,10 +39,34 @@
 
 #define _PATH	"/tmp/protostat"
 
-#define PROTO_TCP	0x01
-#define PROTO_ALL	(PROTO_TCP)
+#define PROTO_AH	0x00001
+#define PROTO_CARP	0x00002
+#define PROTO_DIVERT6	0x00004
+#define PROTO_DIVERT	0x00008
+#define PROTO_ESP	0x00010
+#define PROTO_ETHERIP	0x00020
+#define PROTO_ICMP6	0x00040
+#define PROTO_ICMP	0x00080
+#define PROTO_IGMP	0x00100
+#define PROTO_IP6	0x00200
+#define PROTO_IP	0x00400
+#define PROTO_IPCOMP	0x00800
+#define PROTO_IPENCAP	0x01000
+#define PROTO_IPSEC	0x02000
+#define PROTO_PFLOW	0x04000
+#define PROTO_PFSYNC	0x08000
+#define PROTO_RIP6	0x10000
+#define PROTO_TCP	0x20000
+#define PROTO_UDP	0x40000
+#define PROTO_ALL	(PROTO_AH | PROTO_CARP | PROTO_DIVERT6 |	\
+			PROTO_DIVERT | PROTO_ESP | PROTO_ETHERIP | 	\
+			PROTO_ICMP6 | PROTO_ICMP | PROTO_IGMP | 	\
+			PROTO_IP6 | PROTO_IP | PROTO_IPCOMP |		\
+			PROTO_IPENCAP | PROTO_IPSEC | PROTO_PFLOW |	\
+			PROTO_PFSYNC | PROTO_RIP6 | PROTO_TCP | PROTO_UDP)
 
 struct stats {
+	struct ahstat ah;
 	struct tcpstat tcp;
 };
 
@@ -79,12 +104,18 @@ printstat(void *buf, struct stat_field_descr descr[], size_t nfields)
 		}
 	}
 }
+
+#define printproto(p, t, descr)	do {					\
+	if (protocol & p)						\
+		printstat(&t, descr, sizeof(descr) / sizeof(descr[0]));	\
+	} while(0)
+
 void
 printstats(struct stats *st, uint32_t protocol)
 {
-	if (protocol & PROTO_TCP)
-		printstat(&st->tcp, tcp_descr, sizeof(tcp_descr) /
-		    sizeof(tcp_descr[0]));
+	printproto(PROTO_AH, st->ah, ah_descr);
+
+	printproto(PROTO_TCP, st->tcp, tcp_descr);
 }
 
 void
@@ -169,21 +200,32 @@ loadstat(int fd, void *buf, size_t len)
 	while (len != 0) {
 		if ((r = read(fd, buf + l, len)) == -1)
 			err(1, NULL);
+		if (r == 0)
+			errx(1, "stored data too small");
 		len -= r;
 		l += r;
 	}
 }
 
+#define	getstat(mib1, mib2, mib3, mib4, type, field)	do {		\
+		int mib[] = { mib1, mib2, mib3, mib4 };			\
+		size_t len = sizeof(type);				\
+		memset(&field, 0, sizeof(field));			\
+		if (sysctl(mib, sizeof(mib) / sizeof(mib[0]), &field,	\
+		    &len, NULL, 0) == -1)				\
+			err(1, NULL);					\
+	} while(0)
+
 void
 getstats(struct stats *st)
 {
-	int mib[] = { CTL_NET, PF_INET, IPPROTO_TCP, TCPCTL_STATS };
-	size_t len = sizeof(struct tcpstat);
+/*
+	getstat(CTL_NET, PF_INET, IPPROTO_AH, AHCTL_STATS,
+	    struct ahstat, st->ah);
+*/
 
-	memset(&st->tcp, 0, sizeof(st->tcp));
-	if (sysctl(mib, sizeof(mib) / sizeof(mib[0]), &st->tcp, &len,
-	    NULL, 0) == -1)
-		err(1, "sysctl");
+	getstat(CTL_NET, PF_INET, IPPROTO_TCP, TCPCTL_STATS,
+	    struct tcpstat, st->tcp);
 }
 
 long long
@@ -233,6 +275,50 @@ iter(int print, long long id1, int *fd1, long long id2, int *fd2)
 	}
 
 	return i;
+}
+
+uint32_t
+str2proto(char *optarg)
+{
+	if (strcasecmp(optarg, "AH") == 0)
+		return PROTO_AH;
+	if (strcasecmp(optarg, "CARP") == 0)
+		return PROTO_CARP;
+	if (strcasecmp(optarg, "DIVERT6") == 0)
+		return PROTO_DIVERT6;
+	if (strcasecmp(optarg, "DIVERT") == 0)
+		return PROTO_DIVERT;
+	if (strcasecmp(optarg, "ESP") == 0)
+		return PROTO_ESP;
+	if (strcasecmp(optarg, "ETHERIP") == 0)
+		return PROTO_ETHERIP;
+	if (strcasecmp(optarg, "ICMP6") == 0)
+		return PROTO_ICMP6;
+	if (strcasecmp(optarg, "ICMP") == 0)
+		return PROTO_ICMP;
+	if (strcasecmp(optarg, "IGMP") == 0)
+		return PROTO_IGMP;
+	if (strcasecmp(optarg, "IP6") == 0)
+		return PROTO_IP6;
+	if (strcasecmp(optarg, "IP") == 0)
+		return PROTO_IP;
+	if (strcasecmp(optarg, "IPCOMP") == 0)
+		return PROTO_IPCOMP;
+	if (strcasecmp(optarg, "IPENCAP") == 0)
+		return PROTO_IPENCAP;
+	if (strcasecmp(optarg, "IPSEC") == 0)
+		return PROTO_IPSEC;
+	if (strcasecmp(optarg, "PFLOW") == 0)
+		return PROTO_PFLOW;
+	if (strcasecmp(optarg, "PFSYNC") == 0)
+		return PROTO_PFSYNC;
+	if (strcasecmp(optarg, "RIP6") == 0)
+		return PROTO_RIP6;
+	if (strcasecmp(optarg, "TCP") == 0)
+		return PROTO_TCP;
+	if (strcasecmp(optarg, "UDP") == 0)
+		return PROTO_UDP;
+	errx(1, "unsupported protocol '%s'", optarg);
 }
 
 void
@@ -329,10 +415,7 @@ main(int argc, char *argv[])
 		case 'P':
 			if (protocol == PROTO_ALL)
 				protocol = 0;
-			if (strcasecmp(optarg, "TCP") == 0)
-				protocol |= PROTO_TCP;
-			else
-				errx(1, "unsupported protocol '%s'", optarg);
+			protocol |=  str2proto(optarg);
 			break;
 		default:
 			usage();
