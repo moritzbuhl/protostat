@@ -21,9 +21,12 @@
 
 #include <netinet/in.h>
 #include <netinet/ip_ah.h>
+#include <netinet/ip_carp.h>
+#include <netinet/ip_divert.h>
 #include <netinet/tcp.h>
 #include <netinet/tcp_timer.h>
 #include <netinet/tcp_var.h>
+#include <netinet6/ip6_divert.h>
 
 #include <dirent.h>
 #include <err.h>
@@ -67,6 +70,9 @@
 
 struct stats {
 	struct ahstat ah;
+	struct carpstats carp;
+	struct div6stat divert6;
+	struct divstat divert;
 	struct tcpstat tcp;
 };
 
@@ -114,6 +120,9 @@ void
 printstats(struct stats *st, uint32_t protocol)
 {
 	printproto(PROTO_AH, st->ah, ah_descr);
+	printproto(PROTO_CARP, st->carp, carp_descr);
+	printproto(PROTO_DIVERT6, st->divert6, divert6_descr);
+	printproto(PROTO_DIVERT, st->divert, divert_descr);
 
 	printproto(PROTO_TCP, st->tcp, tcp_descr);
 }
@@ -219,10 +228,14 @@ loadstat(int fd, void *buf, size_t len)
 void
 getstats(struct stats *st)
 {
-/*
 	getstat(CTL_NET, PF_INET, IPPROTO_AH, AHCTL_STATS,
 	    struct ahstat, st->ah);
-*/
+	getstat(CTL_NET, PF_INET, IPPROTO_CARP, CARPCTL_STATS,
+	    struct carpstats, st->carp);
+	getstat(CTL_NET, PF_INET6, IPPROTO_DIVERT, DIVERT6CTL_STATS,
+	    struct div6stat, st->divert6);
+	getstat(CTL_NET, PF_INET, IPPROTO_DIVERT, DIVERT6CTL_STATS,
+	    struct divstat, st->divert);
 
 	getstat(CTL_NET, PF_INET, IPPROTO_TCP, TCPCTL_STATS,
 	    struct tcpstat, st->tcp);

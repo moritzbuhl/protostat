@@ -16,8 +16,11 @@
 
 #define descr(e, type)	{ #e, sizeof(((type *)0)->e), offsetof(type, e) }
 
-#define ah_descr(name)	descr(name, struct ahstat)
-#define tcp_descr(name)	descr(name, struct tcpstat)
+#define ah_descr(name)		descr(name, struct ahstat)
+#define carp_descr(name)	descr(name, struct carpstats)
+#define divert6_descr(name)	descr(name, struct div6stat)
+#define divert_descr(name)	descr(name, struct divstat)
+#define tcp_descr(name)		descr(name, struct tcpstat)
 
 struct stat_field_descr {
 	char	*name;
@@ -45,6 +48,41 @@ struct stat_field_descr ah_descr[] = {
 	ah_descr(ahs_pdrops),
 	ah_descr(ahs_crypto),
 	ah_descr(ahs_outfail),
+};
+
+struct stat_field_descr carp_descr[] = {
+	carp_descr(carps_ipackets),
+	carp_descr(carps_ipackets6),
+	carp_descr(carps_badif),
+	carp_descr(carps_badttl),
+	carp_descr(carps_hdrops),
+	carp_descr(carps_badsum),
+	carp_descr(carps_badver),
+	carp_descr(carps_badlen),
+	carp_descr(carps_badauth),
+	carp_descr(carps_badvhid),
+	carp_descr(carps_badaddrs),
+	carp_descr(carps_opackets),
+	carp_descr(carps_opackets6),
+	carp_descr(carps_onomem),
+	carp_descr(carps_ostates),
+	carp_descr(carps_preempt),
+};
+
+struct stat_field_descr divert6_descr[] = {
+	divert6_descr(divs_ipackets),
+	divert6_descr(divs_noport),
+	divert6_descr(divs_fullsock),
+	divert6_descr(divs_opackets),
+	divert6_descr(divs_errors),
+};
+
+struct stat_field_descr divert_descr[] = {
+	divert_descr(divs_ipackets),
+	divert_descr(divs_noport),
+	divert_descr(divs_fullsock),
+	divert_descr(divs_opackets),
+	divert_descr(divs_errors),
 };
 
 struct stat_field_descr tcp_descr[] = {
