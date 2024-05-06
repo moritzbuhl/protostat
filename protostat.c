@@ -112,8 +112,7 @@ struct stats {
 };
 
 char file[PATH_MAX];
-int store, jFlag, lFlag, qFlag, wFlag, zFlag;
-struct stats print;
+int jFlag, zFlag;
 
 void
 printstat(void *buf, struct stat_field_descr descr[], size_t nfields)
@@ -466,13 +465,16 @@ usage(void)
 int
 main(int argc, char *argv[])
 {
-	int ch, r;
+	int ch, r, fd, fd1, fd2;
+	int lFlag = 0, dFlag = 0, qFlag = 0,  wFlag = 0, DFlag = 0;
 	long long id1 = 0, id2 = 0, max = 0, IFlag = 0;
 	uint32_t protocol = PROTO_ALL;
 	char *c;
 	const char *errstr;
 	struct stat st;
 	struct timeval tv;
+	struct stats st1, st2;
+	struct stats print, *store = &print;
 
 	if (unveil("/tmp/protostat", "rwc") == -1)
 		err(1, NULL);
@@ -490,32 +492,32 @@ main(int argc, char *argv[])
 	while ((ch = getopt(argc, argv, "D:I:P:djlqwz")) != -1) {
 		switch (ch) {
 		case 'd':
+			dFlag = 1;
 			id1 = max;
+			DFlag = 0;
 			IFlag = 0;
 			qFlag = 0;
 			break;
 		case 'j':
 			jFlag = 1;
+			errx(1, "not yet implemented");
 			break;
 		case 'l':
+			lFlag = 1;
 			if (!max)
 				errx(1, "no stored data available");
-			lFlag = 1;
 			break;
 		case 'w':
-			id1 = 0;
-			IFlag = 0;
 			wFlag = 1;
 			break;
 		case 'q':
-			id1 = 0;
-			IFlag = 0;
 			qFlag = 1;
 			break;
 		case 'z':
 			zFlag = 1;
 			break;
 		case 'D':
+			DFlag = 1;
 			if (!max)
 				errx(1, "no stored data available");
 			else if ((c = strstr(optarg, ",")) != NULL) {
@@ -537,8 +539,7 @@ main(int argc, char *argv[])
 			IFlag = strtonum(optarg, 1, max, &errstr);
 			if (errstr != NULL)
 				errx(1, "-I id is %s: %s", errstr, optarg);
-			id1 = 0;
-			wFlag = 0;
+			DFlag = 0;
 			qFlag = 0;
 			break;
 		case 'P':
@@ -568,34 +569,34 @@ main(int argc, char *argv[])
 		err(1, NULL);
 
 	if (wFlag) {
-		if ((store = mkstemp(file)) == -1)
+		if ((fd = mkstemp(file)) == -1)
 			err(1, "mkstemp");
 	}
 
 	if (lFlag || IFlag) {
-		iter(lFlag, IFlag, &store, 0, NULL);
-	} else if (id1) {
-		int fd1, fd2;
-		struct stats st1, st2;
+		iter(lFlag, IFlag, &fd, 0, NULL);
+		if (IFlag) {
+			loadstat(fd, &print, sizeof(print));
+			printstats(&print, protocol);
+		}
+		return 0;
+	}
 
+	if (dFlag || DFlag) {
 		iter(lFlag, id1, &fd1, id2, &fd2);
 		loadstat(fd1, &st1, sizeof(st1));
-		if (id2)
+		if (DFlag && id2)
 			loadstat(fd2, &st2, sizeof(st2));
 		else
 			getstats(&st2);
+		store = &st2;
 
 		diffstats(&st1, &st2, &print);
-	}
-
-	if (!IFlag && !id1)
+	} else
 		getstats(&print);
-
-	if (lFlag)
-		return 0;
 
 	if (!qFlag)
 		printstats(&print, protocol);
 	if (wFlag)
-		dumpstat(store, &print, sizeof(print));
+		dumpstat(fd, store, sizeof(*store));
 }
